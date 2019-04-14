@@ -1,5 +1,4 @@
-﻿#pragma once
-#ifndef MESSAGE_H
+﻿#ifndef MESSAGE_H
 #define MESSAGE_H
 #include <string>
 #include <cassert>

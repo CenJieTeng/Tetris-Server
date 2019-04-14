@@ -1,4 +1,4 @@
-﻿syntax="proto3";
+﻿syntax = "proto3";
 
 //以下所说的"服务器"不是真正的服务器，只是一个房间(ROOM)而已
 
@@ -23,12 +23,14 @@ message ServerMsg{
 //Game消息类型
 enum GameMessageType{
 	GAME_START_MSG = 0; //游戏开始
-	ATK_FOE_MSG	= 1; //攻击敌人
+	ATK_FOE_MSG	= 1; //攻击、被攻击
 	GAME_OVER_MSG = 2; //游戏结束
+	CHAT_MSG = 3; //发送、接收 聊天信息
 }
 
 //游戏逻辑相关信息
 message GameMsg{
 	GameMessageType msgType = 1; //消息类型
 	int32 atkPower = 2; //攻击强度
+	string chat = 3; //聊天内容
 }

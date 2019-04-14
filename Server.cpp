@@ -19,11 +19,11 @@ class session;
 class room;
 class server;
 
-using session_ptr	= std::shared_ptr<session>; //客户端的智能指针
-using session_set	= std::set<session_ptr>; //客户端实例集
-using room_ptr		= std::shared_ptr<room>; //room的智能指针
-using room_map		= std::map<int32_t, room_ptr>; //room实例集
-using msg_deque		= std::deque<message>; //消息队列
+using session_ptr		= std::shared_ptr<session>; //客户端的智能指针
+using session_set		= std::set<session_ptr>; //客户端实例集
+using room_ptr				= std::shared_ptr<room>; //room的智能指针
+using room_map			= std::map<int32_t, room_ptr>; //room实例集
+using msg_deque			= std::deque<message>; //消息队列
 
 //房间类，用于管理客户端的联系
 class room : public std::enable_shared_from_this<room> {
@@ -313,7 +313,7 @@ private:
 			[this, new_session] (const boost::system::error_code &error) {
 				Logger logger(OutPutFileName);
 				if (!error) {
-					hall_.join(new_session); //加入 大厅hall_
+					//hall_.join(new_session); //加入 大厅hall_
 					 logger << "	客户端(" << new_session.get() 
 						<< ")连接到服务器" << "\n\n";
 					new_session->start();  //session开始接收消息
@@ -366,7 +366,8 @@ void session::dispose_server() {
 		join_room(serverMsg.serverid());
 		break;
 	case LEAVE_SERVER_MSG:	 //离开room
-		leave_room();
+		if  (roomId != 0) //在大厅不退出
+			leave_room();
 		break;
 	case GET_ROOM_LIST_MSG: //获取房间信息列表
 		{
@@ -396,8 +397,10 @@ void session::dispose_game() {
 	switch (gameMsg.msgtype())
 	{
 	case GAME_START_MSG:
+	{
 		game_start(); //游戏开始
-		break;
+	}
+	break;
 	case ATK_FOE_MSG:	//攻击对手
 	{
 		server::ROOM(roomId)->deliver(nullptr, shared_from_this(), MessageType::GAME_MSG, gameMsg);
@@ -412,8 +415,30 @@ void session::dispose_game() {
 
 		leave_room();	//离开房间
 	}
-		break;
+	break;
+	case CHAT_MSG: //聊天消息
+	{
+		std::string::size_type n = gameMsg.chat().find(":");
+
+		//命令类消息
+		if (n != std::string::npos){
+			//获取命令
+			std::string  command = gameMsg.chat().substr(0, n);
+
+			if (command == "verify"){
+				//验证客户端
+				if (gameMsg.chat().substr(n + 1) == "123"){
+					server::hall_.join(shared_from_this()); //加入大厅
+				}
+			}
+			if (command == "chat"){
+				server::ROOM(roomId)->deliver(nullptr,  nullptr,  GAME_MSG, gameMsg);
+			}
+		}
 	}
+	break;
+	}
+	
 }
 
 //创建房间room
@@ -505,19 +530,18 @@ void session::leave_room() {
 }
 
 int main() {
-	
-	std::cout << "hello" << std::endl;
+
+	std::thread thread_log([](){
+				for (;;){
+					std::this_thread::sleep_for(std::chrono::minutes(10));
+
+					Logger logger(OutPutFileName);
+					logger << "在线人数:" << server::onLineSessionNum() << "\n\n"; 	
+				}
+			});
 
 	try
 	{       
-	std::thread thread_log([](){
-			for (;;){
-				std::this_thread::sleep_for(std::chrono::minutes(10));
-				Logger logger(OutPutFileName);
-				logger << "在线人数:" << server::onLineSessionNum() << "\n\n"; 	
-			}
-		});
-
 		boost::asio::io_service io_service;
 		server server_(io_service, tcp::endpoint(tcp::v4(), 9999));
 		server_.start();
@@ -529,6 +553,7 @@ int main() {
 	{
 		Logger logger(OutPutFileName);
 		logger << e.what() << "\n\n";
+		thread_log.join();
 	}
 	
 	return 0;

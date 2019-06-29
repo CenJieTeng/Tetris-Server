@@ -43,13 +43,11 @@ public:
 private:
 	//输入当前时间
 	inline void PrintCurTime(){
+		static time_t time_ = std::time(nullptr);
 		out_ << "-->" << std::ctime(&time_);
 	}
 	
-	static time_t time_;
 	std::ofstream out_;
 };
-
-time_t Logger::time_ = std::time(nullptr);
 
 #endif

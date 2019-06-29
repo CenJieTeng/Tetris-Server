@@ -8,10 +8,12 @@
 #include <boost/asio.hpp>
 #include "message.h"
 #include "message.pb.h"
-#include "Logger.h"
+#include "logger.h"
+#include "mydb.h"
 
 const int MaxRoomSize = 4;
 const char *OutPutFileName = "./Server.log";
+Mydb mydb;
 
 using boost::asio::ip::tcp;
 
@@ -192,6 +194,9 @@ private:
 		case GAME_MSG: //游戏相关信息
 			dispose_game();
 			break;
+		case REGISTER_MSG: //注册相关信息
+			dispose_register();
+			break;
 		default:
 			assert(false);
 		}
@@ -208,23 +213,13 @@ private:
 		return ok;
 	}
 
-	//创建新的room,并加入其中
-	void create_room();
-
-	//加入的某个房间
-	void join_room(int32_t);
-
-	//游戏开始
-	void game_start();
-
-	//离开房间
-	void leave_room();
-
-	//处理服务器相关处理
-	void dispose_server();
-
-	//处理游戏相关处理
-	void dispose_game();
+	void create_room();	//创建新的room,并加入其中
+	void join_room(int32_t);//加入的某个房间
+	void game_start();//游戏开始
+	void leave_room();//离开房间
+	void dispose_server();//服务器相关处理
+	void dispose_game();//游戏相关处理
+	void dispose_register();//注册相关处理
 
 	//向客户端发送消息
 	void do_write() {
@@ -342,6 +337,7 @@ room_ptr& server::ROOM(int32_t id){
 	return iter->second;
 }
 
+//服务器相关处理
 void session::dispose_server() {
 
 	ServerMsg serverMsg;
@@ -437,8 +433,88 @@ void session::dispose_game() {
 		}
 	}
 	break;
+	case UPLOAD_SCORE_MSG: //上传分数
+	{
+		//Mydb mydb;
+		const char *name = gameMsg.chat().c_str();
+		int32_t new_socre = gameMsg.atkpower();
+		if (name != ""){
+			if (mydb.exist("user", name)){
+				//存在该玩家，直接更新数据
+				//检查是否高于最高分
+				char que[80];
+				snprintf(que, sizeof(que), "SELECT score FROM score_list WHERE username='%s'", name);
+				MYSQL_ROW row = mydb.fetch_row(que);
+
+				assert(row != nullptr);
+				int old_score = std::stoi(row[0]);
+				mydb.fetch_row(); //这一句非常必要，使fetch_row() 调用free_result(),不然后面的query将会失败
+				
+				if (new_socre > old_score)
+					mydb.update({ name,  new_socre });
+			}
+			else{
+				//否则通知客户端，本地帐号在服务器找不到
+				//mydb.insert({ name, gameMsg.atkpower() });
+				server::hall_.deliver(shared_from_this(), nullptr, GAME_MSG, gameMsg);
+			}
+		}
+		else
+			assert(false);
+	}
+	break;
+	case DOWNLOAD_SCORE_MSG: //下载分数信息
+	{
+		//Mydb mydb;
+		MYSQL_ROW row;
+		while ( (row = mydb.fetch_row()) != nullptr){
+			std::string str =  ((std::string("name: ") + row[0] + "     score: " + row[1]).c_str());
+			gameMsg.set_allocated_chat(new std::string(str));
+			server::hall_.deliver(shared_from_this(), nullptr, GAME_MSG, gameMsg);
+		}
+	}
+	break;
 	}
 	
+}
+
+//注册相关处理
+void session::dispose_register(){
+
+	ResisterMsg registerMsg;
+	if (!ParseMessage(registerMsg)) {
+		Logger logger(OutPutFileName);
+		 logger << "registerMsg:消息解析失败" << "\n\n";
+		return;
+	} 
+
+	//不存在该用户名，直接新建
+	if ( !mydb.exist("user", registerMsg.username().c_str()) ){
+		char que[100];
+		snprintf(que, sizeof(que), 
+			"INSERT INTO user(username, passward) VALUES (\"%s\",\"%s\")",  registerMsg.username().c_str(), registerMsg.passward().c_str());
+		mydb.query(que);
+
+		registerMsg.set_result(true);
+	}
+	else{
+		//存在该用户，核实密码是否正确
+		char que[100];
+		snprintf(que, sizeof(que), 
+			"SELECT passward from user WHERE username='%s'",  registerMsg.username().c_str());
+		MYSQL_ROW row;
+		while ( (row = mydb.fetch_row(que)) != nullptr){
+			if (row[0] == registerMsg.passward()){
+				//登陆成功
+				registerMsg.set_result(true);
+			}
+			else{
+				//提醒客户重新选择用户名
+				registerMsg.set_result(false);
+			}
+		}
+	}
+	server::hall_.deliver(shared_from_this(), nullptr, REGISTER_MSG, registerMsg);
 }
 
 //创建房间room
@@ -531,6 +607,8 @@ void session::leave_room() {
 
 int main() {
 
+	//mydb.query("truncate table score_list"); //清空表
+ 
 	std::thread thread_log([](){
 				for (;;){
 					std::this_thread::sleep_for(std::chrono::minutes(10));

@@ -8,6 +8,7 @@
 enum MessageType{
 	SERVER_MSG = 1,   //服务器相关信息
 	GAME_MSG = 2,     //游戏相关信息
+	REGISTER_MSG = 3, //注册相关消息
 	DEFAULT_MSG = 99  //未定义消息类型
 };
 
